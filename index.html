@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practice Shop - Login</title>
+<style>
+  :root { --ink:#1b1f2a; --accent:#3b6cf6; --err:#d9363e; --bg:#eef1f7; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 48px 16px; text-align:center; }
+  .logo { font-size: 28px; font-weight: 700; letter-spacing: .5px; margin-bottom: 24px; }
+  .logo span { color: var(--accent); }
+  form { background:#fff; max-width:340px; margin:0 auto; padding:24px; border-radius:10px; box-shadow:0 2px 10px rgba(0,0,0,.08); text-align:left; }
+  input { width:100%; padding:12px; margin-bottom:12px; border:1px solid #c9cfdd; border-radius:6px; font-size:15px; }
+  input.error { border-color: var(--err); }
+  button { width:100%; padding:12px; border:0; border-radius:6px; background:var(--accent); color:#fff; font-size:15px; cursor:pointer; }
+  .error-message { background:var(--err); color:#fff; padding:10px 12px; border-radius:6px; margin-bottom:12px; font-size:14px; display:flex; justify-content:space-between; gap:8px; }
+  .error-message button { width:auto; background:transparent; padding:0 4px; }
+  .hint { display:flex; gap:24px; justify-content:center; margin-top:28px; text-align:left; font-size:14px; flex-wrap:wrap; }
+  .hint div { background:#fff; padding:16px 20px; border-radius:10px; min-width:240px; }
+  .hint h4 { margin:0 0 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Practice<span>Shop</span></div>
+
+  <form id="login-form" novalidate>
+    <div id="error-slot"></div>
+    <input id="user-name" data-test="username" placeholder="Username" autocomplete="off">
+    <input id="password" data-test="password" type="password" placeholder="Password">
+    <button id="login-button" data-test="login-button" type="submit">Login</button>
+  </form>
+
+  <div class="hint">
+    <div id="login_credentials">
+      <h4>Accepted usernames</h4>
+      <div id="user-list"></div>
+    </div>
+    <div id="login_password">
+      <h4>Password for all users</h4>
+      <span id="pw-text"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+/* Login rules for the practice store. Pure logic + tiny session helpers. */
+(function (root) {
+  var PASSWORD = 'secret_sauce';
+  var USERS = [
+    'standard_user',          // works normally
+    'locked_out_user',        // always rejected: locked out
+    'problem_user',           // logs in, UI misbehaves (broken images, sort does nothing)
+    'performance_glitch_user',// logs in, but slowly
+    'error_user',             // logs in, "remove" button does nothing
+    'visual_user'             // logs in, layout glitches
+  ];
+  var MSG = {
+    userRequired: 'Epic sadface: Username is required',
+    passRequired: 'Epic sadface: Password is required',
+    mismatch: 'Epic sadface: Username and password do not match any user in this service',
+    locked: 'Epic sadface: Sorry, this user has been locked out.',
+    needLogin: function (path) { return "Epic sadface: You can only access '" + path + "' when you are logged in."; }
+  };
+  var KEY = 'session-username';
+
+  function attemptLogin(username, password) {
+    if (!username) return { ok: false, error: MSG.userRequired };
+    if (!password) return { ok: false, error: MSG.passRequired };
+    if (USERS.indexOf(username) === -1 || password !== PASSWORD) return { ok: false, error: MSG.mismatch };
+    if (username === 'locked_out_user') return { ok: false, error: MSG.locked };
+    return { ok: true, user: username };
+  }
+
+  // cookie (like the real site) + localStorage fallback so it also works from file://
+  function setSession(user) {
+    try { localStorage.setItem(KEY, user); } catch (e) {}
+    try { document.cookie = KEY + '=' + encodeURIComponent(user) + '; path=/'; } catch (e) {}
+  }
+  function getSession() {
+    try { var v = localStorage.getItem(KEY); if (v) return v; } catch (e) {}
+    try {
+      var m = document.cookie.match(new RegExp('(?:^|; )' + KEY + '=([^;]*)'));
+      if (m) return decodeURIComponent(m[1]);
+    } catch (e) {}
+    return null;
+  }
+  function clearSession() {
+    try { localStorage.removeItem(KEY); localStorage.removeItem('cart-contents'); localStorage.removeItem('checkout-info'); } catch (e) {}
+    try { document.cookie = KEY + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'; } catch (e) {}
+  }
+
+  var api = {
+    PASSWORD: PASSWORD, USERS: USERS, MSG: MSG,
+    attemptLogin: attemptLogin, setSession: setSession, getSession: getSession, clearSession: clearSession
+  };
+  root.Auth = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+  var userList = document.getElementById('user-list');
+  Auth.USERS.forEach(function (u) { var d = document.createElement('div'); d.textContent = u; userList.appendChild(d); });
+  document.getElementById('pw-text').textContent = Auth.PASSWORD;
+
+  var slot = document.getElementById('error-slot');
+  var uEl = document.getElementById('user-name');
+  var pEl = document.getElementById('password');
+
+  // came here after hitting a protected page
+  var nl = location.search.match(/[?&]needlogin=([^&]*)/);
+  if (nl) showError(Auth.MSG.needLogin(decodeURIComponent(nl[1])), false);
+
+  function showError(msg, markInputs) {
+    slot.innerHTML = '';
+    var box = document.createElement('div');
+    box.className = 'error-message';
+    box.setAttribute('data-test', 'error');
+    var t = document.createElement('span'); t.textContent = msg;
+    var x = document.createElement('button'); x.type = 'button'; x.className = 'error-button'; x.textContent = '×';
+    x.onclick = function () { slot.innerHTML = ''; uEl.classList.remove('error'); pEl.classList.remove('error'); };
+    box.appendChild(t); box.appendChild(x); slot.appendChild(box);
+    if (markInputs) { uEl.classList.add('error'); pEl.classList.add('error'); }
+  }
+
+  document.getElementById('login-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var r = Auth.attemptLogin(uEl.value, pEl.value);
+    if (!r.ok) return showError(r.error, true);
+    Auth.setSession(r.user);
+    location.href = 'inventory.html';
+  });
+</script>
+</body>
+</html>

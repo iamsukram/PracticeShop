@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practice Shop - Products</title>
+<style>
+  :root { --ink:#1b1f2a; --accent:#3b6cf6; --bg:#eef1f7; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  header { background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.08); padding:12px 20px; display:flex; align-items:center; gap:16px; }
+  .logo { font-weight:700; font-size:20px; flex:1; }
+  .logo span { color:var(--accent); }
+  header button, header select { padding:8px 12px; border-radius:6px; border:1px solid #c9cfdd; background:#fff; cursor:pointer; }
+  .cart { position:relative; }
+  .badge { background:var(--accent); color:#fff; border-radius:10px; padding:0 7px; font-size:12px; margin-left:4px; }
+  main { max-width:960px; margin:24px auto; padding:0 16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
+  .item { background:#fff; border-radius:10px; padding:16px; display:flex; flex-direction:column; gap:8px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+  .item .img { height:120px; border-radius:8px; background:linear-gradient(135deg,#c7d4ff,#e8ecff); display:flex; align-items:center; justify-content:center; font-size:40px; }
+  .item .img.broken { background:#ddd; font-size:14px; color:#777; }
+  .item h3 { margin:0; font-size:16px; }
+  .item p { margin:0; font-size:13px; color:#555; flex:1; }
+  .price { font-weight:700; }
+  .item button { padding:8px; border:0; border-radius:6px; background:var(--accent); color:#fff; cursor:pointer; }
+  .item button.remove { background:#d9363e; }
+  body.visual .item:nth-child(odd) { transform: translateY(6px) rotate(-.6deg); }
+  body.visual .price { font-size:11px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Practice<span>Shop</span></div>
+  <select id="sort" data-test="sort">
+    <option value="az">Name (A to Z)</option>
+    <option value="za">Name (Z to A)</option>
+    <option value="lohi">Price (low to high)</option>
+    <option value="hilo">Price (high to low)</option>
+  </select>
+  <a class="cart" href="cart.html" data-test="cart-link" style="color:inherit;text-decoration:none">Cart<span class="badge" id="cart-count" data-test="cart-count">0</span></a>
+  <button id="profile" data-test="profile">Profile</button>
+  <button id="logout" data-test="logout">Logout</button>
+</header>
+<main id="list"></main>
+
+<script>
+/* Login rules for the practice store. Pure logic + tiny session helpers. */
+(function (root) {
+  var PASSWORD = 'secret_sauce';
+  var USERS = [
+    'standard_user',          // works normally
+    'locked_out_user',        // always rejected: locked out
+    'problem_user',           // logs in, UI misbehaves (broken images, sort does nothing)
+    'performance_glitch_user',// logs in, but slowly
+    'error_user',             // logs in, "remove" button does nothing
+    'visual_user'             // logs in, layout glitches
+  ];
+  var MSG = {
+    userRequired: 'Epic sadface: Username is required',
+    passRequired: 'Epic sadface: Password is required',
+    mismatch: 'Epic sadface: Username and password do not match any user in this service',
+    locked: 'Epic sadface: Sorry, this user has been locked out.',
+    needLogin: function (path) { return "Epic sadface: You can only access '" + path + "' when you are logged in."; }
+  };
+  var KEY = 'session-username';
+
+  function attemptLogin(username, password) {
+    if (!username) return { ok: false, error: MSG.userRequired };
+    if (!password) return { ok: false, error: MSG.passRequired };
+    if (USERS.indexOf(username) === -1 || password !== PASSWORD) return { ok: false, error: MSG.mismatch };
+    if (username === 'locked_out_user') return { ok: false, error: MSG.locked };
+    return { ok: true, user: username };
+  }
+
+  // cookie (like the real site) + localStorage fallback so it also works from file://
+  function setSession(user) {
+    try { localStorage.setItem(KEY, user); } catch (e) {}
+    try { document.cookie = KEY + '=' + encodeURIComponent(user) + '; path=/'; } catch (e) {}
+  }
+  function getSession() {
+    try { var v = localStorage.getItem(KEY); if (v) return v; } catch (e) {}
+    try {
+      var m = document.cookie.match(new RegExp('(?:^|; )' + KEY + '=([^;]*)'));
+      if (m) return decodeURIComponent(m[1]);
+    } catch (e) {}
+    return null;
+  }
+  function clearSession() {
+    try { localStorage.removeItem(KEY); localStorage.removeItem('cart-contents'); localStorage.removeItem('checkout-info'); } catch (e) {}
+    try { document.cookie = KEY + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT'; } catch (e) {}
+  }
+
+  var api = {
+    PASSWORD: PASSWORD, USERS: USERS, MSG: MSG,
+    attemptLogin: attemptLogin, setSession: setSession, getSession: getSession, clearSession: clearSession
+  };
+  root.Auth = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+/* Shared shop helpers: products, cart, login guard, header. Needs auth.js loaded first. */
+(function (root) {
+  var PRODUCTS = [
+    { id:'backpack', name:'Trail Backpack', price:29.99, emoji:'🎒', desc:'Roomy pack with a padded laptop sleeve.' },
+    { id:'light',    name:'Bike Light',     price:9.99,  emoji:'💡', desc:'Bright LED, three modes, USB rechargeable.' },
+    { id:'tee',      name:'Logo T-Shirt',   price:15.99, emoji:'👕', desc:'Soft cotton tee in storm blue.' },
+    { id:'jacket',   name:'Fleece Jacket',  price:49.99, emoji:'🧥', desc:'Warm half-zip fleece for cold mornings.' },
+    { id:'onesie',   name:'Baby Onesie',    price:7.99,  emoji:'👶', desc:'Snap-bottom onesie, machine washable.' },
+    { id:'redtee',   name:'Red Tee (Test)', price:15.99, emoji:'👚', desc:'Special edition tee, red.' }
+  ];
+  var TAX_RATE = 0.08;
+
+  function byId(id) { for (var i = 0; i < PRODUCTS.length; i++) if (PRODUCTS[i].id === id) return PRODUCTS[i]; return null; }
+  function loadCart() {
+    try { var c = JSON.parse(localStorage.getItem('cart-contents') || '[]'); return Array.isArray(c) ? c : []; } catch (e) { return []; }
+  }
+  function saveCart(c) { try { localStorage.setItem('cart-contents', JSON.stringify(c)); } catch (e) {} }
+  function loadInfo() { try { return JSON.parse(localStorage.getItem('checkout-info') || 'null'); } catch (e) { return null; } }
+  function saveInfo(i) { try { localStorage.setItem('checkout-info', JSON.stringify(i)); } catch (e) {} }
+  function money(n) { return '$' + n.toFixed(2); }
+  function totals(cart) {
+    var sub = 0; cart.forEach(function (id) { var p = byId(id); if (p) sub += p.price; });
+    sub = Math.round(sub * 100) / 100;
+    var tax = Math.round(sub * TAX_RATE * 100) / 100;
+    return { sub: sub, tax: tax, total: Math.round((sub + tax) * 100) / 100 };
+  }
+
+  // guard: no session -> login page with "must be logged in" message for this path
+  function requireUser() {
+    var u = root.Auth.getSession();
+    if (!u) {
+      var page = location.pathname.split('/').pop() || 'index.html';
+      location.replace('index.html?needlogin=' + encodeURIComponent('/' + page));
+      throw new Error('not logged in');
+    }
+    return u;
+  }
+
+  function mountHeader(el, cartCount) {
+    el.innerHTML =
+      '<a class="logo" href="inventory.html">Practice<span>Shop</span></a>' +
+      '<a class="cart" href="cart.html" data-test="cart-link">Cart<span class="badge" data-test="cart-count">' + cartCount + '</span></a>' +
+      '<button id="logout" data-test="logout">Logout</button>';
+    el.querySelector('#logout').addEventListener('click', function () {
+      root.Auth.clearSession();
+      location.href = 'index.html';
+    });
+  }
+
+  function errorBox(slot, msg, inputs) {
+    slot.innerHTML = '';
+    var box = document.createElement('div'); box.className = 'error-message'; box.setAttribute('data-test', 'error');
+    var t = document.createElement('span'); t.textContent = msg;
+    var x = document.createElement('button'); x.type = 'button'; x.textContent = '×';
+    x.onclick = function () { slot.innerHTML = ''; (inputs || []).forEach(function (i) { i.classList.remove('error'); }); };
+    box.appendChild(t); box.appendChild(x); slot.appendChild(box);
+  }
+
+  var api = { PRODUCTS: PRODUCTS, byId: byId, loadCart: loadCart, saveCart: saveCart, loadInfo: loadInfo, saveInfo: saveInfo,
+              money: money, totals: totals, requireUser: requireUser, mountHeader: mountHeader, errorBox: errorBox };
+  root.Shop = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
+  var user = Shop.requireUser();
+  var PRODUCTS = Shop.PRODUCTS;
+  var cart = Shop.loadCart();
+  function saveCart() { Shop.saveCart(cart); }
+
+  if (user === 'visual_user') document.body.classList.add('visual');
+
+  var listEl = document.getElementById('list');
+  var sortEl = document.getElementById('sort');
+
+  function sorted(mode) {
+    var a = PRODUCTS.slice();
+    if (mode === 'az') a.sort(function (x, y) { return x.name.localeCompare(y.name); });
+    if (mode === 'za') a.sort(function (x, y) { return y.name.localeCompare(x.name); });
+    if (mode === 'lohi') a.sort(function (x, y) { return x.price - y.price; });
+    if (mode === 'hilo') a.sort(function (x, y) { return y.price - x.price; });
+    return a;
+  }
+
+  function render(mode) {
+    // problem_user: sort does nothing
+    var items = user === 'problem_user' ? PRODUCTS : sorted(mode);
+    listEl.innerHTML = '';
+    items.forEach(function (p) {
+      var inCart = cart.indexOf(p.id) !== -1;
+      var d = document.createElement('div'); d.className = 'item'; d.setAttribute('data-test', 'item-' + p.id);
+      var img = document.createElement('div'); img.className = 'img';
+      if (user === 'problem_user') { img.className += ' broken'; img.textContent = 'image missing'; } else { img.textContent = p.emoji; }
+      var h = document.createElement('h3'); h.textContent = p.name;
+      var para = document.createElement('p'); para.textContent = p.desc;
+      var pr = document.createElement('div'); pr.className = 'price'; pr.textContent = '$' + p.price.toFixed(2);
+      var b = document.createElement('button');
+      b.setAttribute('data-test', (inCart ? 'remove-' : 'add-to-cart-') + p.id);
+      b.className = inCart ? 'remove' : '';
+      b.textContent = inCart ? 'Remove' : 'Add to cart';
+      b.onclick = function () { toggle(p.id); };
+      d.appendChild(img); d.appendChild(h); d.appendChild(para); d.appendChild(pr); d.appendChild(b);
+      listEl.appendChild(d);
+    });
+    document.getElementById('cart-count').textContent = cart.length;
+  }
+
+  function toggle(id) {
+    var i = cart.indexOf(id);
+    if (i === -1) cart.push(id);
+    else if (user === 'error_user') return;          // error_user: remove does nothing
+    else cart.splice(i, 1);
+    saveCart();
+    render(sortEl.value);
+  }
+
+  sortEl.addEventListener('change', function () { render(sortEl.value); });
+  document.getElementById('profile').addEventListener('click', function () { location.href = 'profile.html'; });
+  document.getElementById('logout').addEventListener('click', function () {
+    Auth.clearSession();
+    location.href = 'index.html';
+  });
+
+  // performance_glitch_user: slow load
+  if (user === 'performance_glitch_user') setTimeout(function () { render('az'); }, 3000);
+  else render('az');
+</script>
+</body>
+</html>
